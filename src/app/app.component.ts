@@ -128,8 +128,11 @@ export interface IHashTable<TValue> {
 export class Snake extends Actor {
   private lastUnix: number = 0;
   private threshold: number = 100;
+
+  private direction: Direction = Direction.East;
   
   private directionMap: IHashTable<Direction> = {};
+  private oppositeDirectionMap: IHashTable<Direction> = {};
 
   constructor() {
     super();
@@ -138,6 +141,11 @@ export class Snake extends Actor {
     this.directionMap[KeyboardMap.Right] = Direction.East;
     this.directionMap[KeyboardMap.Top] = Direction.North;
     this.directionMap[KeyboardMap.Bottom] = Direction.South;
+
+    this.oppositeDirectionMap[Direction.East] = Direction.West;
+    this.oppositeDirectionMap[Direction.West] = Direction.East;
+    this.oppositeDirectionMap[Direction.South] = Direction.North;
+    this.oppositeDirectionMap[Direction.North] = Direction.South;
 
     for (let i = 0; i < 10; i++) {
       this.addChild(new SnakeCell(i, 0, this.children[Math.max(0, i - 1)] as SnakeCell)); 
@@ -161,15 +169,38 @@ export class Snake extends Actor {
   }
 
   override onKeydown(e: KeyboardEvent) {
-    console.log(this.directionMap);
     var direction = this.directionMap[e.keyCode];
     if (direction === undefined) {
       return;
     }
 
+    if (this.oppositeDirectionMap[direction] === this.direction) {
+      return;
+    }
 
     var head = this.children[this.children.length - 1] as SnakeCell;
     head.changeDirection(direction);
+    this.direction = direction;
+  }
+
+  getPosition() {
+    return this.children[this.children.length - 1].position;
+  }
+}
+
+export class Camera extends Actor {
+  private readonly _followTarget: Snake;
+  private readonly _stage: PIXI.Container;
+  constructor(followTarget: Snake, stage: PIXI.Container) {
+    super();
+
+    this._followTarget = followTarget;
+    this._stage = stage;
+  }
+
+  update(delta: number) {
+    var position = this._followTarget.getPosition();
+    this._stage.setTransform((window.innerWidth / 2) - position.x, (window.innerHeight / 2) - position.y);
   }
 }
 
@@ -189,7 +220,9 @@ export class AppComponent {
   ngOnInit(): void {
     document.body.appendChild(this.app.view);
     this.actors.push(new Background());
-    this.actors.push(new Snake());
+    const snake = new Snake();
+    this.actors.push(snake);
+    this.actors.push(new Camera(snake, this.app.stage));
     this.initActors();
   }
 
