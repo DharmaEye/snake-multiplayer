@@ -18,7 +18,7 @@ export enum KeyboardMap {
 }
 
 export abstract class Actor extends PIXI.Graphics {
-  update(delta: number) {
+  update(delta: number, app?: PIXI.Application) {
 
   }
 
@@ -79,12 +79,24 @@ export class SnakeCell extends Actor {
     this.position.y = worldPosition.y;
   }
 
-  getWorldPosition() {
-    var tileSize = 20;
-    return { x: (this.tileX * tileSize) + this.radius, y: (this.tileY * tileSize) + this.radius };
+  copy() {
+    var snake = new SnakeCell(this.tileX, this.tileY, <any> undefined);
+    snake.directionX = this.directionX;
+    snake.directionY = this.directionY;
+    snake.position = this.position;
+    snake.next = this;
+    return snake;
   }
 
-  smoothUpdate(delta: number) {
+  getWorldPosition() {
+    return { x: (this.tileX * 20) + this.radius, y: (this.tileY * 20) + this.radius };
+  }
+
+  public getTilePosition() {
+    return { x: this.tileX, y: this.tileY };
+  }
+
+  smoothUpdate(delta: number, app: PIXI.Application) {
     var speed = 60 / 1000;
     var position = this.getWorldPosition();
     this.position.x = this.lerp(this.position.x, position.x, speed * delta);
@@ -125,12 +137,44 @@ export interface IHashTable<TValue> {
   [key: number]: TValue;
 }
 
+export class Common {
+  private static food: Food[] = [];
+
+  public static addFood(food: Food) {
+    Common.food.push(food);
+  }
+
+  public static removeFood(index: number) {
+    if (index < 0) {
+      return;
+    }
+    var food = Common.food[index];
+    food.parent.removeChild(food);
+    Common.food.splice(index, 1);
+  }
+
+  public static foodTest(x: number, y: number): number {
+    var maxDistance = 10;
+    for (let i = 0; i < Common.food.length; i++) {
+      const food = Common.food[i];
+      var dX = food.position.x - x;
+      var dY = food.position.y - y;
+
+      var prd = Math.sqrt(dX * dX + dY * dY);
+      if (prd <= maxDistance) {
+        return i;
+      }
+    }
+    return -1;
+  }
+}
+
 export class Snake extends Actor {
   private lastUnix: number = 0;
   private threshold: number = 100;
 
   private direction: Direction = Direction.East;
-  
+
   private directionMap: IHashTable<Direction> = {};
   private oppositeDirectionMap: IHashTable<Direction> = {};
 
@@ -147,12 +191,12 @@ export class Snake extends Actor {
     this.oppositeDirectionMap[Direction.South] = Direction.North;
     this.oppositeDirectionMap[Direction.North] = Direction.South;
 
-    for (let i = 0; i < 10; i++) {
-      this.addChild(new SnakeCell(i, 0, this.children[Math.max(0, i - 1)] as SnakeCell)); 
+    for (let i = 0; i < 4; i++) {
+      this.addChild(new SnakeCell(this.children.length, 0, this.children[Math.max(0, this.children.length - 1)] as SnakeCell));
     }
   }
 
-  update(delta: number) {
+  update(delta: number, app: PIXI.Application) {
     var currentUnix = performance.now();
     var canResetUnix = false;
     for (let i = 0; i < this.children.length; i++) {
@@ -161,10 +205,17 @@ export class Snake extends Actor {
       if (canResetUnix) {
         child.update();
       }
-      child.smoothUpdate(delta);
+      child.smoothUpdate(delta, app);
     }
     if (canResetUnix) {
       this.lastUnix = performance.now();
+    }
+
+    var position = this.getPosition();
+    var food = Common.foodTest(position.x, position.y);
+    if (food > -1) {
+      Common.removeFood(food);
+      this.addChildAt((this.children[0] as SnakeCell).copy(), 0);
     }
   }
 
@@ -185,6 +236,21 @@ export class Snake extends Actor {
 
   getPosition() {
     return this.children[this.children.length - 1].position;
+  }
+}
+
+export class Food extends Actor {
+  private radius: number = 5;
+
+  constructor(x: number, y: number) {
+    super();
+
+    this.beginFill(0xffffff);
+    this.drawCircle(0, 0, this.radius);
+    this.endFill();
+
+    this.position.x = x;
+    this.position.y = y;
   }
 }
 
@@ -223,6 +289,22 @@ export class AppComponent {
     const snake = new Snake();
     this.actors.push(snake);
     this.actors.push(new Camera(snake, this.app.stage));
+
+    // Max X and Y that the foods will be placed
+    var maxX = 100;
+    var maxY = 100;
+    
+    // Default sizes for tile x and y
+    var tileX = 20;
+    var tileY = 20;
+    for (let i = 0; i < 100; i++) {
+      var x = Math.floor(Math.random() * maxX);
+      var y = Math.floor(Math.random() * maxY);
+      var food = new Food((x * tileX) + 5, (y * tileY) + 5);
+      this.actors.push(food);
+      Common.addFood(food);
+    }
+
     this.initActors();
   }
 
@@ -233,7 +315,7 @@ export class AppComponent {
     for (let i = 0; i < this.actors.length; i++) {
       const actor = this.actors[i];
       this.app.stage.addChild(actor);
-      this.app.ticker.add((e) => actor.update(e));
+      this.app.ticker.add((e) => actor.update(e, this.app));
     }
 
     /*
